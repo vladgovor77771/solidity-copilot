@@ -1,0 +1,5 @@
+.vscode
+dataset
+raw_dataset
+*.zip
+*.tar.xz
