@@ -4,3 +4,4 @@ raw_dataset
 *.zip
 *.tar.xz
 python_env
+training/results
