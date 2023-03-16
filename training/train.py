@@ -6,12 +6,18 @@ import evaluate
 from itertools import chain
 import logging
 
-os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512"
+# os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+# os.environ["CUDA_VISIBLE_DEVICES"] = "2"
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:256"
+
+ds_path = '/home/stepan/ml/solidity-copilot/dataset'
+cache_path = './cache'
+results_path = './results'
+logs_path = './logs'
+SEGMENT_SIZE = 1000
 
 device = torch.device('cuda')
-ds = Dataset.load_from_disk('/data/solidity-dataset')
+ds = Dataset.load_from_disk(ds_path).filter(lambda x: len(x['text']) > 60)
 
 logging.getLogger(
     "transformers.tokenization_utils_base").setLevel(logging.ERROR)
@@ -51,8 +57,8 @@ def prepare_segment(tokenizer: AutoTokenizer, full_ds: Dataset, segment_size: in
         batched=True,
         batch_size=5,
         num_proc=6,
-        cache_file_name=f'/data/solidity-cache/seg_{segment_i}_tokenize_map_cache.cache',
-        load_from_cache_file=True,
+        cache_file_name=f'{cache_path}/seg_{segment_i}_tokenize_map_cache.cache',
+        # load_from_cache_file=True,
         desc=f'Segment #{segment_i} | Tokenizing'
     )
     
@@ -62,8 +68,8 @@ def prepare_segment(tokenizer: AutoTokenizer, full_ds: Dataset, segment_size: in
         batch_size=5,
         num_proc=6,
         drop_last_batch=True,
-        cache_file_name=f'/data/solidity-cache/seg_{segment_i}_group_map_cache.cache',
-        load_from_cache_file=True,
+        cache_file_name=f'{cache_path}/seg_{segment_i}_group_map_cache.cache',
+        # load_from_cache_file=True,
         desc=f'Segment #{segment_i} | Grouping into batches'
     )
 
@@ -85,27 +91,27 @@ def compute_metrics(eval_preds):
     return metric.compute(predictions=preds, references=labels)
 
 
-def train(model, tokenizer, ds: Dataset, segment_size: int, segment_i: int):
+def train(model, tokenizer, ds: Dataset, segment_size: int, segment_i: int, meta_i: int):
     segment_ds_tokenized = prepare_segment(
-        tokenizer, ds, segment_size, segment_i).train_test_split(0.005)
+        tokenizer, ds, segment_size, segment_i).train_test_split(0.01)
 
     training_args = TrainingArguments(
-        output_dir=f'./results/segment-{segment_i}',
-        num_train_epochs=3,
-        per_device_train_batch_size=16,
-        per_device_eval_batch_size=8,
-        eval_accumulation_steps=8,
-        save_steps=10000,
+        output_dir=f'{results_path}/meta-{meta_i}/segment-{segment_i}',
+        num_train_epochs=1,
+        per_device_train_batch_size=6,
+        per_device_eval_batch_size=4,
+        eval_accumulation_steps=5,
+        save_strategy='epoch',
         weight_decay=0.01,
-        logging_dir=f'./logs/segment-{segment_i}',
+        logging_dir=f'{logs_path}/meta-{meta_i}/segment-{segment_i}',
         logging_steps=100,
         evaluation_strategy='epoch',
-        fp16=True,
-        learning_rate=15e-6
+        # fp16=True,
+        learning_rate=12e-7
     )
 
     data_collator = DataCollatorForLanguageModeling(
-        tokenizer=tokenizer, mlm=True, mlm_probability=0.15)
+        tokenizer=tokenizer, mlm=False, mlm_probability=0.15)
 
     trainer = Trainer(
         model=model,
@@ -117,15 +123,15 @@ def train(model, tokenizer, ds: Dataset, segment_size: int, segment_i: int):
         preprocess_logits_for_metrics=preprocess_logits_for_metrics,
     )
 
+    # trainer.evaluate()
     trainer.train()
-    trainer.save_model(f'./results/after-segment-{segment_i}')
 
-# checkpoint = 'Salesforce/codet5-small'
-checkpoint = './results/after-segment-4'
+checkpoint = 'Salesforce/codet5-small'
+# checkpoint = './results/after-segment-4'
 tokenizer = AutoTokenizer.from_pretrained('Salesforce/codet5-small')
 model = T5ForConditionalGeneration.from_pretrained(checkpoint).to(device)
 
-SEGMENT_SIZE = 10000
-
-for i in range(5, len(ds) // SEGMENT_SIZE + (1 if len(ds) % SEGMENT_SIZE != 0 else 0)):
-    train(model, tokenizer, ds, SEGMENT_SIZE, i)
+for meta_i in range(0, 3):
+    for segment_i in range(0, len(ds) // SEGMENT_SIZE + (1 if len(ds) % SEGMENT_SIZE != 0 else 0)):
+        train(model, tokenizer, ds, SEGMENT_SIZE, segment_i, meta_i)
+        torch.cuda.empty_cache()

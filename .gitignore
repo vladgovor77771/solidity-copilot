@@ -5,3 +5,4 @@ raw_dataset
 *.tar.xz
 python_env
 training/results
+cache
