@@ -2,9 +2,9 @@ import os
 import torch
 from transformers import AutoTokenizer, T5ForConditionalGeneration, TrainingArguments, DataCollatorForLanguageModeling, Trainer
 from datasets import Dataset
-import evaluate
 from itertools import chain
 import logging
+import db
 
 # os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 # os.environ["CUDA_VISIBLE_DEVICES"] = "2"
@@ -14,24 +14,22 @@ ds_path = '/home/stepan/ml/solidity-copilot/dataset'
 cache_path = './cache'
 results_path = './results'
 logs_path = './logs'
-SEGMENT_SIZE = 1000
+SEGMENT_SIZE = 10000
 
 device = torch.device('cuda')
-ds = Dataset.load_from_disk(ds_path).filter(lambda x: len(x['text']) > 60)
 
 logging.getLogger(
     "transformers.tokenization_utils_base").setLevel(logging.ERROR)
 
-def tokenize_function(tokenizer):
-    def f(item):
-        return tokenizer(item['text'], return_tensors="pt", padding=True)
-
-    return f
-
 BLOCK_SIZE = 512
 
+def prepare_segment(tokenizer: AutoTokenizer, segment_size: int, segment_i: int):
+    def tokenize_function(tokenizer):
+        def f(item):
+            return tokenizer(item['source_code'], return_tensors="pt", padding=True)
 
-def prepare_segment(tokenizer: AutoTokenizer, full_ds: Dataset, segment_size: int, segment_i: int):
+        return f
+    
     def group_texts(examples):
         # Concatenate all texts.
         concatenated_examples = {
@@ -48,17 +46,16 @@ def prepare_segment(tokenizer: AutoTokenizer, full_ds: Dataset, segment_size: in
         }
         return result
 
-    segment_ds = Dataset.from_dict(
-        full_ds[segment_i * segment_size:(segment_i + 1) * segment_size])
+    segment_contracts = list(map(lambda x: { 'source_code': x['source_code'] }, db.contracts_collection.find({}, limit=segment_size, skip=(segment_i * segment_size))))
+    segment_ds = Dataset.from_list(
+        segment_contracts)
 
     tokenized = segment_ds.map(
         tokenize_function(tokenizer),
-        remove_columns='text',
+        remove_columns=['source_code'],
         batched=True,
         batch_size=5,
         num_proc=6,
-        cache_file_name=f'{cache_path}/seg_{segment_i}_tokenize_map_cache.cache',
-        # load_from_cache_file=True,
         desc=f'Segment #{segment_i} | Tokenizing'
     )
     
@@ -68,50 +65,29 @@ def prepare_segment(tokenizer: AutoTokenizer, full_ds: Dataset, segment_size: in
         batch_size=5,
         num_proc=6,
         drop_last_batch=True,
-        cache_file_name=f'{cache_path}/seg_{segment_i}_group_map_cache.cache',
-        # load_from_cache_file=True,
         desc=f'Segment #{segment_i} | Grouping into batches'
     )
 
 
-def preprocess_logits_for_metrics(logits, labels):
-    if isinstance(logits, tuple):
-        # Depending on the model and config, logits may contain extra tensors,
-        # like past_key_values, but logits always come first
-        logits = logits[0]
-    return logits.argmax(dim=-1)
-
-
-metric = evaluate.load("accuracy")
-
-def compute_metrics(eval_preds):
-    preds, labels = eval_preds
-    labels = labels[:, 1:].reshape(-1)
-    preds = preds[:, :-1].reshape(-1)
-    return metric.compute(predictions=preds, references=labels)
-
-
-def train(model, tokenizer, ds: Dataset, segment_size: int, segment_i: int, meta_i: int):
+def train(model, tokenizer, segment_size: int, segment_i: int, meta_i: int):
     segment_ds_tokenized = prepare_segment(
-        tokenizer, ds, segment_size, segment_i).train_test_split(0.01)
+        tokenizer, segment_size, segment_i).train_test_split(0.01)
 
     training_args = TrainingArguments(
         output_dir=f'{results_path}/meta-{meta_i}/segment-{segment_i}',
         num_train_epochs=1,
         per_device_train_batch_size=6,
-        per_device_eval_batch_size=4,
         eval_accumulation_steps=5,
         save_strategy='epoch',
         weight_decay=0.01,
         logging_dir=f'{logs_path}/meta-{meta_i}/segment-{segment_i}',
         logging_steps=100,
         evaluation_strategy='epoch',
-        # fp16=True,
         learning_rate=12e-7
     )
 
     data_collator = DataCollatorForLanguageModeling(
-        tokenizer=tokenizer, mlm=False, mlm_probability=0.15)
+        tokenizer=tokenizer, mlm=False)
 
     trainer = Trainer(
         model=model,
@@ -119,19 +95,17 @@ def train(model, tokenizer, ds: Dataset, segment_size: int, segment_i: int, meta
         train_dataset=segment_ds_tokenized["train"],
         eval_dataset=segment_ds_tokenized["test"],
         data_collator=data_collator,
-        compute_metrics=compute_metrics,
-        preprocess_logits_for_metrics=preprocess_logits_for_metrics,
     )
 
     # trainer.evaluate()
     trainer.train()
 
-checkpoint = 'Salesforce/codet5-small'
-# checkpoint = './results/after-segment-4'
+# checkpoint = 'Salesforce/codet5-small'
+checkpoint = f'{results_path}/meta-0/segment-27/checkpoint-10851'
 tokenizer = AutoTokenizer.from_pretrained('Salesforce/codet5-small')
 model = T5ForConditionalGeneration.from_pretrained(checkpoint).to(device)
 
 for meta_i in range(0, 3):
-    for segment_i in range(0, len(ds) // SEGMENT_SIZE + (1 if len(ds) % SEGMENT_SIZE != 0 else 0)):
-        train(model, tokenizer, ds, SEGMENT_SIZE, segment_i, meta_i)
+    for segment_i in range(28, 75):
+        train(model, tokenizer, SEGMENT_SIZE, segment_i, meta_i)
         torch.cuda.empty_cache()

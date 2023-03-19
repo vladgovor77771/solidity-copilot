@@ -6,3 +6,4 @@ raw_dataset
 python_env
 training/results
 cache
+__pycache__
