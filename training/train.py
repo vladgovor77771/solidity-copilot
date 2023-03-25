@@ -83,7 +83,8 @@ def train(model, tokenizer, segment_size: int, segment_i: int, meta_i: int):
         logging_dir=f'{logs_path}/meta-{meta_i}/segment-{segment_i}',
         logging_steps=100,
         evaluation_strategy='epoch',
-        learning_rate=12e-7
+        learning_rate=11e-6,
+        lr_scheduler_type="cosine"
     )
 
     data_collator = DataCollatorForLanguageModeling(
@@ -95,17 +96,19 @@ def train(model, tokenizer, segment_size: int, segment_i: int, meta_i: int):
         train_dataset=segment_ds_tokenized["train"],
         eval_dataset=segment_ds_tokenized["test"],
         data_collator=data_collator,
+        
     )
 
     # trainer.evaluate()
     trainer.train()
 
 # checkpoint = 'Salesforce/codet5-small'
-checkpoint = f'{results_path}/meta-0/segment-27/checkpoint-10851'
+checkpoint = f'{results_path}/meta-0/segment-46/checkpoint-11131'
 tokenizer = AutoTokenizer.from_pretrained('Salesforce/codet5-small')
 model = T5ForConditionalGeneration.from_pretrained(checkpoint).to(device)
 
-for meta_i in range(0, 3):
-    for segment_i in range(28, 75):
-        train(model, tokenizer, SEGMENT_SIZE, segment_i, meta_i)
-        torch.cuda.empty_cache()
+prepare_segment(tokenizer, 750000, 0)
+# for meta_i in range(0, 1):
+#     for segment_i in range(47, 75):
+#         train(model, tokenizer, SEGMENT_SIZE, segment_i, meta_i)
+#         torch.cuda.empty_cache()

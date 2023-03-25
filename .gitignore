@@ -7,3 +7,4 @@ python_env
 training/results
 cache
 __pycache__
+node_modules

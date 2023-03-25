@@ -6,3 +6,4 @@ db = client["solidity"]
 contracts_collection = db.get_collection("contracts")
 libraries_collection = db.get_collection("libraries")
 interfaces_collection = db.get_collection("interfaces")
+functions_collections = db.get_collection("functions")

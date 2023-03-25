@@ -43,7 +43,7 @@ class MyRequestHandler(BaseHTTPRequestHandler):
             # Make inference with the model
             output_ids = self.model.generate(
                 input_ids,
-                # max_length=128,
+                max_length=512,
                 # num_return_sequences=1,
                 # do_sample=True,
                 # top_k=1,

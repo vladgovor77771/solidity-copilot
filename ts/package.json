@@ -1,0 +1,15 @@
+{
+  "name": "ast",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "dependencies": {
+    "@types/mongodb": "^4.0.7",
+    "@types/node": "^18.15.5",
+    "mongodb": "^5.1.0",
+    "solc-typed-ast": "^13.0.2",
+    "solidity-parser-antlr": "^0.4.11",
+    "ts-node": "^10.9.1",
+    "typescript": "^5.0.2"
+  }
+}
