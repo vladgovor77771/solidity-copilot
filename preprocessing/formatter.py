@@ -38,6 +38,6 @@ ds_path = '../dataset'
 ds = Dataset.load_from_disk(ds_path)
 ds.map(
     mapper,
-    num_proc=16,
+    num_proc=8,
     desc=f'Formatting'
 )

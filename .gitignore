@@ -8,3 +8,5 @@ training/results
 cache
 __pycache__
 node_modules
+functions_ds
+.DS_Store
