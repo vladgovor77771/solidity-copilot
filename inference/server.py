@@ -77,7 +77,7 @@ tokenizer = RobertaTokenizer.from_pretrained('Salesforce/codet5-small')
 model = T5ForConditionalGeneration.from_pretrained(checkpoint).to(device)
 
 # Create the HTTP server
-server_address = ('', 8000)
+server_address = ('', 8008)
 httpd = HTTPServer(
     server_address, lambda *args: MyRequestHandler(model, tokenizer, *args))
 print(f'Starting HTTP server on port {server_address[1]}')
